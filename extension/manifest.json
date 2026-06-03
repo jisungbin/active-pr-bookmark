@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Active PR Bookmark Sync",
+  "version": "0.1.0",
+  "description": "현재 작업 중인 PR을 북마크 바 폴더에 자동 동기화",
+  "permissions": ["bookmarks", "nativeMessaging", "alarms"],
+  "background": { "service_worker": "background.js" }
+}

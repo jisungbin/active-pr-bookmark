@@ -1,0 +1,14 @@
+{
+  "_comment": "이 hooks 블록을 ~/.claude/settings.json 의 hooks 에 MERGE 하세요. command 경로는 설치 위치의 절대경로여야 합니다 — './install.sh' 실행 시 정확한 경로의 블록을 출력해 줍니다. 기존 hooks(있다면)는 덮지 말 것.",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "/ABSOLUTE/PATH/TO/active-pr-bookmark/hooks/pr-bookmark-session-start.sh" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "/ABSOLUTE/PATH/TO/active-pr-bookmark/hooks/pr-bookmark-post-bash.sh" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "/ABSOLUTE/PATH/TO/active-pr-bookmark/hooks/pr-bookmark-session-end.sh" } ] }
+    ]
+  }
+}
