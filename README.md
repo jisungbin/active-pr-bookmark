@@ -12,10 +12,10 @@ Claude hook (bash)  ──쓰기──> ~/.claude/active-prs/<session_id>.json
 Chrome Extension  ◀───push─── host/pr-host.py (영속, connectNative)
        │                      active-prs 파일만 읽음 (gh 호출 없음)
        ▼
-  폴더와 diff → chrome.bookmarks 갱신
+  폴더에 없는 PR만 chrome.bookmarks 에 추가 (삭제 없음)
 ```
 
-- **Extension**: 북마크를 만질 수 있는 유일한 주체. 호스트와 connectNative로 연결해두고, **push가 올 때만** 폴더를 멱등 동기화 (주기 폴링 없음).
+- **Extension**: 북마크를 만질 수 있는 유일한 주체. 호스트와 connectNative로 연결해두고, **push가 올 때만** 폴더에 새 PR을 추가 (add-only — 삭제·이동 없음, 주기 폴링 없음).
 - **호스트(`pr-host.py`)**: Chrome이 spawn하는 **영속** 스크립트. `fswatch`로 active-prs 변경을 감지해 즉시 push (외부 명령 호출 안 함).
 - **hook**: 작업 중인 PR을 기록하는 **유일한 소스**. hook이 없으면 폴더는 빈 채로 유지됨.
 
@@ -65,7 +65,7 @@ Chrome 재시작(또는 확장 reload) → 북마크 바에 **🔥 Active PRs** 
 | 폴더 이름 | `🔥 Active PRs` | `extension/background.js` `FOLDER_TITLE` |
 | push 디바운스 | 200ms (`fswatch -l`) | `host/pr-host.py` |
 | 재연결 점검 | 1분 (SW 死 대비 안전망) | `extension/background.js` `RECONNECT_MINUTES` |
-| 머지/클로즈된 PR | 표시 안 함 (호스트가 `state=OPEN` 만) + 세션 종료/24h TTL 시 파일 제거 | `host/pr-host.py` |
+| 머지/클로즈/종료된 PR | 한번 추가되면 폴더에 남음 (add-only — 자동 삭제 안 함, 수동 정리) | `extension/background.js` |
 | 죽은 세션 파일 청소 | 24h TTL | `host/pr-host.py` `TTL` |
 
 ## 한계
@@ -75,4 +75,4 @@ Chrome 재시작(또는 확장 reload) → 북마크 바에 **🔥 Active PRs** 
 - SW가 강제 종료되면 재연결까지 최대 1분 — 그 사이 변경은 재연결 직후 초기 push로 일괄 반영(누락 없음).
 - `fswatch` 미설치 시 push 동작 안 함 (`brew install fswatch`).
 - CI/리뷰 상태(🟢🟡🔴) 미반영 — 현재는 🔥/⚪(draft) 만.
-- 세션이 비정상 종료되면 그 PR이 최대 24h 폴더에 남을 수 있음(SessionEnd 누락 → TTL로 정리).
+- **add-only 동작** — 한번 추가된 북마크는 PR이 머지/클로즈되거나 세션이 끝나도 자동 삭제되지 않음. 폴더 정리는 수동(호스트는 여전히 죽은 세션 파일을 24h TTL로 청소하지만, 이미 만든 북마크에는 영향 없음).

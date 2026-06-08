@@ -42,24 +42,16 @@ async function ensureFolder() {
   );
 }
 
-// url을 키로 멱등 동기화: 사라진 건 remove, 새 건 create, 제목 바뀐 건 update, 순서는 move로 맞춤
+// add-only 동기화: 폴더에 없는 PR만 추가한다. 기존 북마크는 건드리지 않음 —
+// 사라진 PR도 삭제하지 않고, 순서·제목도 사용자가 둔 그대로 유지.
 async function syncFolder(desired) {
   const folder = await ensureFolder();
   const existing = await chrome.bookmarks.getChildren(folder.id);
-  const desiredUrls = new Set(desired.map((d) => d.url));
-  const existingByUrl = new Map(existing.filter((e) => e.url).map((e) => [e.url, e]));
+  const existingUrls = new Set(existing.filter((e) => e.url).map((e) => e.url));
 
-  for (const e of existing) {
-    if (e.url && !desiredUrls.has(e.url)) await chrome.bookmarks.remove(e.id);
-  }
-  for (let i = 0; i < desired.length; i++) {
-    const d = desired[i];
-    const ex = existingByUrl.get(d.url);
-    if (!ex) {
-      await chrome.bookmarks.create({ parentId: folder.id, title: d.title, url: d.url, index: i });
-    } else {
-      if (ex.title !== d.title) await chrome.bookmarks.update(ex.id, { title: d.title });
-      await chrome.bookmarks.move(ex.id, { parentId: folder.id, index: i });
+  for (const d of desired) {
+    if (!existingUrls.has(d.url)) {
+      await chrome.bookmarks.create({ parentId: folder.id, title: d.title, url: d.url });
     }
   }
 }
