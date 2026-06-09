@@ -54,9 +54,18 @@ def platform_tag(url):
     return repo or "?"  # 그 외 레포는 레포명 그대로
 
 
+def sort_key(pr):
+    tag = platform_tag(pr["url"])
+    rank = 0 if tag == "Android" else 1 if tag == "iOS" else 2
+    title = pr.get("title", pr["url"])
+    m = re.search(r"\[([A-Za-z]+)-(\d+)\]", title)
+    # 티켓 있으면 (프로젝트 키, 번호)순, 없으면 그룹 맨 뒤. 번호는 정수 비교.
+    ticket = (0, m.group(1), int(m.group(2))) if m else (1, "", 0)
+    return (rank, tag, ticket, title)
+
+
 def build_bookmarks():
-    prs = sorted(active_session_prs().values(),
-                 key=lambda pr: (platform_tag(pr["url"]), pr.get("title", "")))
+    prs = sorted(active_session_prs().values(), key=sort_key)
     return [{"title": f"[{platform_tag(pr['url'])}] {pr.get('title', pr['url'])}",
              "url": pr["url"]}
             for pr in prs]

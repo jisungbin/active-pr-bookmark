@@ -42,8 +42,8 @@ async function ensureFolder() {
   );
 }
 
-// add-only 동기화: 폴더에 없는 PR만 추가한다. 기존 북마크는 건드리지 않음 —
-// 사라진 PR도 삭제하지 않고, 순서·제목도 사용자가 둔 그대로 유지.
+// add-only 동기화: 폴더에 없는 PR만 추가하고 삭제는 하지 않는다.
+// 추가 후 폴더 전체를 정렬 순서로 재배치 — 정렬을 사용자 수동 순서보다 우선한다.
 async function syncFolder(desired) {
   const folder = await ensureFolder();
   const existing = await chrome.bookmarks.getChildren(folder.id);
@@ -53,5 +53,39 @@ async function syncFolder(desired) {
     if (!existingUrls.has(d.url)) {
       await chrome.bookmarks.create({ parentId: folder.id, title: d.title, url: d.url });
     }
+  }
+
+  await sortFolder(folder.id);
+}
+
+// [Android] → [iOS] → 기타 레포 순, 각 그룹 안에서는 티켓(프로젝트 키 → 번호)순.
+// 번호는 정수로 비교 — 문자열 정렬이면 SEARCH-1200 이 SEARCH-672 앞에 온다.
+function sortKey(title) {
+  const m = title.match(/^\[([^\]]+)\](?:\s*\[([A-Za-z]+)-(\d+)\])?/);
+  const platform = m ? m[1] : "";
+  const rank = platform === "Android" ? 0 : platform === "iOS" ? 1 : 2;
+  const ticket = !!(m && m[2]);
+  return { rank, platform, ticket, project: ticket ? m[2] : "", num: ticket ? parseInt(m[3], 10) : 0 };
+}
+
+function compareBookmarks(a, b) {
+  const x = sortKey(a.title), y = sortKey(b.title);
+  return x.rank - y.rank
+    || x.platform.localeCompare(y.platform)
+    || (x.ticket === y.ticket ? 0 : x.ticket ? -1 : 1)  // 티켓 없는 항목은 그룹 맨 뒤
+    || x.project.localeCompare(y.project)
+    || x.num - y.num
+    || a.title.localeCompare(b.title);
+}
+
+// 정렬된 순서로 in-place 재배치. 이미 제자리인 항목은 move를 건너뛴다(불필요한 변경 이벤트 방지).
+async function sortFolder(folderId) {
+  const order = await chrome.bookmarks.getChildren(folderId);
+  const sorted = [...order].sort(compareBookmarks);
+  for (let i = 0; i < sorted.length; i++) {
+    if (order[i].id === sorted[i].id) continue;
+    await chrome.bookmarks.move(sorted[i].id, { parentId: folderId, index: i });
+    const from = order.findIndex((b) => b.id === sorted[i].id);
+    order.splice(i, 0, order.splice(from, 1)[0]);  // 로컬 순서도 동기화해 다음 비교를 정확히
   }
 }
