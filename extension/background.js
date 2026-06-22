@@ -9,7 +9,9 @@ function connect() {
   if (port) return;
   port = chrome.runtime.connectNative(HOST);
   port.onMessage.addListener((msg) => {
-    syncFolder((msg && msg.bookmarks) || []).catch((e) => console.error("[PRBookmark] sync:", e));
+    if (!msg) return;
+    if (msg.bookmarks) syncFolder(msg.bookmarks).catch((e) => console.error("[PRBookmark] sync:", e));
+    if (msg.remove) removeMerged(msg.remove).catch((e) => console.error("[PRBookmark] remove:", e));
   });
   port.onDisconnect.addListener(() => {
     const err = chrome.runtime.lastError;
@@ -23,7 +25,8 @@ function ensureAlarm() {
 }
 
 chrome.runtime.onInstalled.addListener(() => { ensureAlarm(); connect(); });
-chrome.runtime.onStartup.addListener(() => { ensureAlarm(); connect(); });
+chrome.runtime.onStartup.addListener(() => { ensureAlarm(); connect(); checkMerged(); });
+chrome.action.onClicked.addListener(() => { connect(); checkMerged(); }); // 아이콘 클릭 = 수동 정리 (크롬을 안 끄는 경우용)
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === RECONNECT_ALARM) connect(); });
 
 connect(); // SW 기동 시마다 연결 보장 (알람이 죽은 SW를 깨우면 여기서 다시 연결됨)
@@ -76,6 +79,42 @@ function compareBookmarks(a, b) {
     || x.project.localeCompare(y.project)
     || x.num - y.num
     || a.title.localeCompare(b.title);
+}
+
+// 크롬 시작 시 1회: 폴더의 PR URL을 호스트에 보내 머지/클로즈 여부 조회를 요청한다.
+// 주기 폴링 대신 onStartup 이벤트로만 — 소스는 세션 파일이 아니라 폴더 자체라 세션이 끝난 PR도 검사된다.
+async function checkMerged() {
+  const folder = await ensureFolder();
+  const kids = await chrome.bookmarks.getChildren(folder.id);
+  const urls = kids.filter((k) => k.url).map((k) => k.url);
+  if (!urls.length || !port) return;
+  try {
+    port.postMessage({ check: urls });
+    chrome.action.setBadgeBackgroundColor({ color: "#8c959f" });
+    chrome.action.setBadgeText({ text: "…" }); // 조회 중 (응답 오면 flashBadge가 덮어씀)
+  } catch (e) {
+    port = null;
+    console.warn("[PRBookmark] check send failed:", e.message); // 끊긴 port → 다음 이벤트가 재연결
+  }
+}
+
+// 호스트가 머지/클로즈로 확인한 URL만 폴더에서 제거. (세션 종료·TTL로는 지우지 않음 — add-only 유지)
+async function removeMerged(urls) {
+  const folder = await ensureFolder();
+  const kids = await chrome.bookmarks.getChildren(folder.id);
+  const gone = new Set(urls);
+  let n = 0;
+  for (const k of kids) {
+    if (k.url && gone.has(k.url)) { await chrome.bookmarks.remove(k.id); n++; }
+  }
+  flashBadge(n);
+}
+
+// 조회 결과를 아이콘 badge로 ~4초 표시: 제거 n개면 초록 "n", 정리할 게 없으면 회색 "✓".
+function flashBadge(n) {
+  chrome.action.setBadgeBackgroundColor({ color: n > 0 ? "#1a7f37" : "#8c959f" });
+  chrome.action.setBadgeText({ text: n > 0 ? String(n) : "✓" });
+  setTimeout(() => chrome.action.setBadgeText({ text: "" }), 4000);
 }
 
 // 정렬된 순서로 in-place 재배치. 이미 제자리인 항목은 move를 건너뛴다(불필요한 변경 이벤트 방지).

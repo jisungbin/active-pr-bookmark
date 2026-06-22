@@ -7,7 +7,7 @@ Chrome이 spawn하며, port가 닫히면(=stdin EOF) 종료한다.
 """
 import sys, os, re, struct, json, glob, time, select, subprocess
 
-# Chrome가 spawn하는 프로세스는 PATH가 최소라 fswatch를 못 찾음 → 보강
+# Chrome가 spawn하는 프로세스는 PATH가 최소라 fswatch·gh를 못 찾음 → 보강
 os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH", "/usr/bin:/bin")
 
 ACTIVE_DIR = os.path.expanduser("~/.claude/active-prs")
@@ -19,6 +19,48 @@ def send_message(obj):
     sys.stdout.buffer.write(struct.pack("<I", len(data)))  # 4바이트 LE 길이 = NM 프로토콜
     sys.stdout.buffer.write(data)
     sys.stdout.buffer.flush()
+
+
+def read_exactly(fd, n):
+    # select 와 일관되게 raw fd 로 정확히 n바이트 (BufferedReader readahead 가 select 를 굶기는 것 방지)
+    buf = b""
+    while len(buf) < n:
+        chunk = os.read(fd, n - len(buf))
+        if not chunk:
+            return None  # EOF
+        buf += chunk
+    return buf
+
+
+def read_message(fd):
+    head = read_exactly(fd, 4)  # 4바이트 LE 길이 = NM 프로토콜
+    if head is None:
+        return None
+    data = read_exactly(fd, struct.unpack("<I", head)[0])
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode("utf-8"))
+    except Exception:
+        return {}
+
+
+def check_merged(urls):
+    # MERGED/CLOSED 로 *확인된* URL만 반환. 조회 실패·타임아웃·OPEN은 보존 — 멀쩡한 북마크를 지우지 않는다.
+    closed = []
+    for url in urls:
+        if not re.search(r"github\.com/[^/]+/[^/]+/pull/\d+", url or ""):
+            continue
+        try:
+            r = subprocess.run(["gh", "pr", "view", url, "--json", "state"],
+                               capture_output=True, text=True, timeout=20)
+            if r.returncode != 0:
+                continue
+            if json.loads(r.stdout).get("state") in ("MERGED", "CLOSED"):
+                closed.append(url)
+        except Exception:
+            continue
+    return closed
 
 
 def active_session_prs():
@@ -89,8 +131,11 @@ def main():
                     break
                 push()
             if stdin_fd in ready:
-                if not os.read(stdin_fd, 65536):  # stdin EOF = port 닫힘
+                msg = read_message(stdin_fd)
+                if msg is None:  # stdin EOF = port 닫힘
                     break
+                if "check" in msg:  # 폴더 PR 상태 조회 요청 — badge 피드백 위해 빈 결과도 응답
+                    send_message({"remove": check_merged(msg["check"])})
     except (BrokenPipeError, OSError):
         pass  # port가 닫히는 중 — 조용히 종료
     finally:

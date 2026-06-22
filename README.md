@@ -10,18 +10,18 @@ Claude hook (bash)  ──쓰기──> ~/.claude/active-prs/<session_id>.json
                                          │ 파일 변경
                                          ▼ fswatch 감지
 Chrome Extension  ◀───push─── host/pr-host.py (영속, connectNative)
-       │                      active-prs 파일만 읽음 (gh 호출 없음)
+       │  ──check(크롬 시작)─▶  폴더 PR을 gh 로 조회 → 머지/클로즈만 remove
        ▼
-  폴더에 없는 PR만 chrome.bookmarks 에 추가 (삭제 없음)
+  push: 폴더에 없는 PR 추가 (add-only) / remove: 머지·클로즈된 PR 제거
 ```
 
-- **Extension**: 북마크를 만질 수 있는 유일한 주체. 호스트와 connectNative로 연결해두고, **push가 올 때만** 폴더에 새 PR을 추가 (add-only — 삭제·이동 없음, 주기 폴링 없음).
-- **호스트(`pr-host.py`)**: Chrome이 spawn하는 **영속** 스크립트. `fswatch`로 active-prs 변경을 감지해 즉시 push (외부 명령 호출 안 함).
+- **Extension**: 북마크를 만질 수 있는 유일한 주체. 호스트와 connectNative로 연결해두고, **push가 올 때** 폴더에 새 PR을 추가(add-only — 삭제·이동 없음). 또한 **크롬 시작 시·툴바 아이콘 클릭 시** 폴더의 PR URL을 호스트에 보내(`check`), 호스트가 머지/클로즈로 확인해 돌려준(`remove`) PR만 폴더에서 지우고 결과를 아이콘 badge로 잠깐 표시한다(제거 `n`개 / 정리할 것 없으면 `✓`). 주기 폴링은 없음.
+- **호스트(`pr-host.py`)**: Chrome이 spawn하는 **영속** 스크립트. `fswatch`로 active-prs 변경을 감지해 즉시 push. `check` 요청을 받으면 해당 URL들을 `gh pr view`로 조회해 **MERGED/CLOSED로 확인된 것만** `remove`로 응답(조회 실패·OPEN은 보존).
 - **hook**: 작업 중인 PR을 기록하는 **유일한 소스**. hook이 없으면 폴더는 빈 채로 유지됨.
 
 ## 설치
 
-**준비**: `brew install fswatch` (push 감지에 필요).
+**준비**: `brew install fswatch` (push 감지), `gh auth login` (머지/클로즈 조회에 사용 — hook도 `gh`를 씀).
 
 ### 1. Extension 로드 (→ Extension ID 확정)
 
@@ -65,7 +65,7 @@ Chrome 재시작(또는 확장 reload) → 북마크 바에 **🔥 Active PRs** 
 | 폴더 이름 | `🔥 Active PRs` | `extension/background.js` `FOLDER_TITLE` |
 | push 디바운스 | 200ms (`fswatch -l`) | `host/pr-host.py` |
 | 재연결 점검 | 1분 (SW 死 대비 안전망) | `extension/background.js` `RECONNECT_MINUTES` |
-| 머지/클로즈/종료된 PR | 한번 추가되면 폴더에 남음 (add-only — 자동 삭제 안 함, 수동 정리) | `extension/background.js` |
+| 머지/클로즈된 PR | 크롬 시작·아이콘 클릭 시 `gh` 조회로 제거 (세션 종료·TTL로는 안 지움) | `extension/background.js` · `host/pr-host.py` |
 | 죽은 세션 파일 청소 | 24h TTL | `host/pr-host.py` `TTL` |
 
 ## 한계
@@ -75,4 +75,4 @@ Chrome 재시작(또는 확장 reload) → 북마크 바에 **🔥 Active PRs** 
 - SW가 강제 종료되면 재연결까지 최대 1분 — 그 사이 변경은 재연결 직후 초기 push로 일괄 반영(누락 없음).
 - `fswatch` 미설치 시 push 동작 안 함 (`brew install fswatch`).
 - CI/리뷰 상태(🟢🟡🔴) 미반영 — 현재는 🔥/⚪(draft) 만.
-- **add-only 동작** — 한번 추가된 북마크는 PR이 머지/클로즈되거나 세션이 끝나도 자동 삭제되지 않음. 폴더 정리는 수동(호스트는 여전히 죽은 세션 파일을 24h TTL로 청소하지만, 이미 만든 북마크에는 영향 없음).
+- **머지/클로즈 제거 트리거는 크롬 시작·아이콘 클릭** — 크롬을 계속 켜두면 웹에서 머지된 PR이 그 자리에 남는데, **툴바 아이콘을 누르거나** 다음 크롬 재시작 때 `gh` 조회로 일괄 정리된다. 세션 종료·TTL로는 지우지 않으므로 OPEN인 PR은 세션이 끝나도 폴더에 남는다(추가는 add-only 유지).
