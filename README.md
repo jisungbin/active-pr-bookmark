@@ -10,13 +10,13 @@ Claude hook (bash)  ──쓰기──> ~/.claude/active-prs/<session_id>.json
                                          │ 파일 변경
                                          ▼ fswatch 감지
 Chrome Extension  ◀───push─── host/pr-host.py (영속, connectNative)
-       │  ──check(크롬 시작)─▶  폴더 PR을 gh 로 조회 → 머지/클로즈만 remove
+       │  ──check+discover(아이콘·크롬 시작)─▶  폴더 PR 머지/클로즈 조회 + healingpaper 내 open PR 조회
        ▼
-  push: 폴더에 없는 PR 추가 (add-only) / remove: 머지·클로즈된 PR 제거
+  push·discover: 폴더에 없는 PR 추가 (add-only) / remove: 머지·클로즈된 PR 제거
 ```
 
-- **Extension**: 북마크를 만질 수 있는 유일한 주체. 호스트와 connectNative로 연결해두고, **push가 올 때** 폴더에 새 PR을 추가(add-only — 삭제·이동 없음). 또한 **크롬 시작 시·툴바 아이콘 클릭 시** 폴더의 PR URL을 호스트에 보내(`check`), 호스트가 머지/클로즈로 확인해 돌려준(`remove`) PR만 폴더에서 지우고 결과를 아이콘 badge로 잠깐 표시한다(제거 `n`개 / 정리할 것 없으면 `✓`). 주기 폴링은 없음.
-- **호스트(`pr-host.py`)**: Chrome이 spawn하는 **영속** 스크립트. `fswatch`로 active-prs 변경을 감지해 즉시 push. `check` 요청을 받으면 해당 URL들을 `gh pr view`로 조회해 **MERGED/CLOSED로 확인된 것만** `remove`로 응답(조회 실패·OPEN은 보존).
+- **Extension**: 북마크를 만질 수 있는 유일한 주체. 호스트와 connectNative로 연결해두고, **push가 올 때** 폴더에 새 PR을 추가(add-only — 삭제·이동 없음). 또한 **크롬 시작 시·툴바 아이콘 클릭 시** `check`(폴더 PR URL)와 `discover`를 함께 보내, 호스트가 돌려준 머지/클로즈 PR(`remove`)은 폴더에서 지우고 발견한 내 open PR(`add`)은 add-only로 추가한 뒤, 결과를 아이콘 badge로 잠깐 표시한다(추가 우선 `+m` / 제거 `-n` / 변동 없으면 `✓`). 주기 폴링은 없음.
+- **호스트(`pr-host.py`)**: Chrome이 spawn하는 **영속** 스크립트. `fswatch`로 active-prs 변경을 감지해 즉시 push. `check` 요청을 받으면 해당 URL들을 `gh pr view`로 조회해 **MERGED/CLOSED로 확인된 것만** `remove`로 응답(조회 실패·OPEN은 보존). `discover` 요청을 받으면 `gh search prs --author=@me --state=open --owner healingpaper`로 **healingpaper org의 내 open PR**을 조회해 `add`로 응답(세션 소스 밖의 PR도 포함, 개인·OSS 레포는 제외).
 - **hook**: 작업 중인 PR을 기록하는 **유일한 소스**. hook이 없으면 폴더는 빈 채로 유지됨.
 
 ## 설치
@@ -66,11 +66,12 @@ Chrome 재시작(또는 확장 reload) → 북마크 바에 **🔥 Active PRs** 
 | push 디바운스 | 200ms (`fswatch -l`) | `host/pr-host.py` |
 | 재연결 점검 | 1분 (SW 死 대비 안전망) | `extension/background.js` `RECONNECT_MINUTES` |
 | 머지/클로즈된 PR | 크롬 시작·아이콘 클릭 시 `gh` 조회로 제거 (세션 종료·TTL로는 안 지움) | `extension/background.js` · `host/pr-host.py` |
+| 내 PR 발견(discover) org | `healingpaper` (아이콘·크롬 시작 시 내 open PR 조회 범위) | `host/pr-host.py` `ORG` |
 | 죽은 세션 파일 청소 | 24h TTL | `host/pr-host.py` `TTL` |
 
 ## 한계
 
-- **Claude 세션이 연 PR만 표시** — 웹 UI·동료·다른 도구로 만든 PR은 안 나옴 (설계상 의도). 잡히는 건 세션이 머문 브랜치의 PR + 세션 내 `gh pr create/merge/...` 로 건드린 PR.
+- **자동 push는 Claude 세션이 연 PR만** — fswatch push로 실시간 반영되는 건 세션이 머문 브랜치의 PR + 세션 내 `gh pr create/merge/...` 로 건드린 PR뿐. 단 **아이콘 클릭·크롬 시작 시 discover**가 healingpaper org의 내 open PR 전부를 발견해 추가하므로, 웹 UI·다른 도구로 만든 PR도 그때 폴더에 들어온다(개인·OSS 레포 PR은 제외).
 - push 반영은 ~수백 ms (fswatch 디바운스 200ms + 동기화).
 - SW가 강제 종료되면 재연결까지 최대 1분 — 그 사이 변경은 재연결 직후 초기 push로 일괄 반영(누락 없음).
 - `fswatch` 미설치 시 push 동작 안 함 (`brew install fswatch`).

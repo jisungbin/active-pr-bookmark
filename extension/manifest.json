@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "description": "현재 작업 중인 PR을 북마크 바 폴더에 자동 동기화",
   "permissions": ["bookmarks", "nativeMessaging", "alarms"],
-  "action": { "default_title": "Active PRs: 머지·클로즈된 PR 정리" },
+  "action": { "default_title": "Active PRs: 내 PR 추가 + 머지·클로즈 정리" },
   "background": { "service_worker": "background.js" }
 }

@@ -12,6 +12,7 @@ os.environ["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + os.environ.get("PATH"
 
 ACTIVE_DIR = os.path.expanduser("~/.claude/active-prs")
 TTL = 24 * 3600  # SessionEnd 누락(크래시) 세션 파일을 이 시간 뒤 청소
+ORG = "healingpaper"  # discover: 내 open PR을 이 org 안에서만 조회 (개인·OSS 레포 제외)
 
 
 def send_message(obj):
@@ -106,11 +107,27 @@ def sort_key(pr):
     return (rank, tag, ticket, title)
 
 
+def to_bookmarks(prs):
+    return [{"title": f"[{platform_tag(pr['url'])}] {pr.get('title', pr['url'])}", "url": pr["url"]}
+            for pr in sorted(prs, key=sort_key)]
+
+
 def build_bookmarks():
-    prs = sorted(active_session_prs().values(), key=sort_key)
-    return [{"title": f"[{platform_tag(pr['url'])}] {pr.get('title', pr['url'])}",
-             "url": pr["url"]}
-            for pr in prs]
+    return to_bookmarks(active_session_prs().values())
+
+
+def discover_my_prs():
+    # healingpaper org 안에서 내가 author인 open PR. 세션 소스(active-prs) 밖의 PR도 잡아 폴더에 추가한다.
+    try:
+        r = subprocess.run(["gh", "search", "prs", "--author=@me", "--state=open",
+                            "--owner", ORG, "--limit", "100", "--json", "url,title"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            return []
+        prs = json.loads(r.stdout)
+    except Exception:
+        return []  # 조회 실패 시 빈 결과 — add-only라 기존 북마크엔 영향 없음
+    return to_bookmarks(p for p in prs if p.get("url"))
 
 
 def push():
@@ -134,8 +151,14 @@ def main():
                 msg = read_message(stdin_fd)
                 if msg is None:  # stdin EOF = port 닫힘
                     break
-                if "check" in msg:  # 폴더 PR 상태 조회 요청 — badge 피드백 위해 빈 결과도 응답
-                    send_message({"remove": check_merged(msg["check"])})
+                # 아이콘 클릭: 머지/클로즈 제거(check) + 내 open PR 발견(discover)을 한 응답으로
+                resp = {}
+                if "check" in msg:
+                    resp["remove"] = check_merged(msg["check"])
+                if msg.get("discover"):
+                    resp["add"] = discover_my_prs()
+                if resp:  # badge 피드백 위해 빈 결과도 응답
+                    send_message(resp)
     except (BrokenPipeError, OSError):
         pass  # port가 닫히는 중 — 조용히 종료
     finally:
