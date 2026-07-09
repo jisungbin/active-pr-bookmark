@@ -64,6 +64,24 @@ def check_merged(urls):
     return closed
 
 
+def remove_session_files(urls):
+    # MERGED/CLOSED 확정 URL의 세션 파일을 삭제 — 아이콘 클릭 제거가 SSOT에도 반영돼 재시작 push 때 부활하지 않는다.
+    if not urls:
+        return
+    gone = set(urls)
+    for path in glob.glob(os.path.join(ACTIVE_DIR, "*.json")):
+        try:
+            with open(path) as f:
+                pr = json.load(f).get("pr")
+        except Exception:
+            continue
+        if isinstance(pr, dict) and pr.get("url") in gone:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
 def active_session_prs():
     prs = {}
     now = time.time()
@@ -154,7 +172,9 @@ def main():
                 # 아이콘 클릭: 머지/클로즈 제거(check) + 내 open PR 발견(discover)을 한 응답으로
                 resp = {}
                 if "check" in msg:
-                    resp["remove"] = check_merged(msg["check"])
+                    closed = check_merged(msg["check"])
+                    resp["remove"] = closed
+                    remove_session_files(closed)  # SSOT에도 반영 — 재시작 push 때 부활 방지
                 if msg.get("discover"):
                     resp["add"] = discover_my_prs()
                 if resp:  # badge 피드백 위해 빈 결과도 응답
